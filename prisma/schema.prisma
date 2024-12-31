@@ -1,14 +1,56 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// This is your Prisma schema file
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+model User {
+  id           Int         @id @default(autoincrement())
+  role         String      // 'ADMIN' or 'USER'
+  subCounty    SubCounty   @relation(fields: [subCountyId], references: [id])
+  subCountyId  String      @unique // This ensures one-to-one relationship
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
+
+model County {
+  id           String       @id @default(cuid())
+  name         String       @unique
+  subCounties  SubCounty[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model SubCounty {
+  id           String      @id @default(cuid())
+  name         String
+  accessKey    String      @unique
+  county       County      @relation(fields: [countyId], references: [id])
+  countyId     String
+  user         User?
+  equipments   Equipment[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([name, countyId]) // Ensure unique sub-county names within a county
+}
+
+model Equipment {
+  id            String      @id @default(cuid())
+  name          String
+  type          String
+  condition     String      // e.g., "Good", "Needs Repair", "Out of Service"
+  serialNumber  String?     @unique
+  purchaseDate  DateTime?
+  subCounty     SubCounty   @relation(fields: [subCountyId], references: [id])
+  subCountyId   String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([type]) // Add index for faster equipment type queries
+}
+
