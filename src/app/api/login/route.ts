@@ -1,90 +1,98 @@
-import { NextRequest, NextResponse } from "next/server"
-import { PrismaClient } from "@prisma/client"
+import { NextRequest, NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+import { sign } from 'jsonwebtoken';
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { accessKey } = body
+    // Validate request body
+    const body = await req.json().catch(() => {
+      throw new Error('Invalid JSON in request body');
+    });
 
-    if (!accessKey) {
-      return NextResponse.json({ error: "Access key is required" }, { status: 400 })
+    // Validate access key
+    const { accessKey } = body;
+    if (!accessKey || typeof accessKey !== 'string') {
+      return NextResponse.json(
+        { error: "Access key is required" },
+        { status: 400 }
+      );
     }
 
-    // First, try to find a sub-county with the given access key
-    const subCounty = await prisma.subCounty.findUnique({
+    // Validate NEXTAUTH_SECRET
+    if (!process.env.NEXTAUTH_SECRET) {
+      console.error('NEXTAUTH_SECRET is not configured');
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
+    }
+
+    // Find user
+    const user = await prisma.user.findUnique({
       where: { accessKey },
       include: {
-        user: true,
         county: true,
-      },
-    })
-
-    if (subCounty && subCounty.user) {
-      return NextResponse.json({
-        id: subCounty.user.id.toString(),
-        role: subCounty.user.role,
-        name: subCounty.name,
-        countyId: subCounty.countyId,
-        subCountyId: subCounty.id,
-      })
-    }
-
-    // If no sub-county is found, check if it's a county admin
-    const county = await prisma.county.findFirst({
-      where: {
-        subCounties: {
-          some: { accessKey },
-        },
-      },
-      include: {
-        subCounties: {
-          where: { accessKey },
-          include: { user: true },
-        },
-      },
-    })
-
-    if (county && county.subCounties[0] && county.subCounties[0].user) {
-      const subCounty = county.subCounties[0]
-      return NextResponse.json({
-        id: subCounty.user.id.toString(),
-        role: subCounty.user.role,
-        name: county.name,
-        countyId: county.id,
-        subCountyId: subCounty.id,
-      })
-    }
-
-    // If still not found, check if it's a country admin
-    const countryAdmin = await prisma.user.findFirst({
-      where: {
-        role: "COUNTRY_ADMIN",
-        subCounty: {
-          accessKey,
-        },
-      },
-      include: {
         subCounty: true,
       },
-    })
+    });
 
-    if (countryAdmin) {
-      return NextResponse.json({
-        id: countryAdmin.id.toString(),
-        role: "COUNTRY_ADMIN",
-        name: "Country Admin",
-        subCountyId: countryAdmin.subCountyId,
-      })
+    if (!user) {
+      return NextResponse.json(
+        { error: "Invalid access key" },
+        { status: 401 }
+      );
     }
 
-    // If no user is found with the given access key
-    return NextResponse.json({ error: "Invalid access key" }, { status: 401 })
-    
+    // Determine name based on role
+    let name = "User";
+    if (user.role === "COUNTRY_ADMIN") {
+      name = "Country Admin";
+    } else if (user.role === "COUNTY_ADMIN" && user.county) {
+      name = user.county.name;
+    } else if (user.role === "SUB_COUNTY_USER" && user.subCounty) {
+      name = user.subCounty.name;
+    }
+
+    // Create JWT token
+    const token = sign(
+      {
+        id: user.id,
+        role: user.role,
+        // Add additional claims if needed
+      },
+      process.env.NEXTAUTH_SECRET,
+      { expiresIn: '1d' }
+    );
+
+    console.log('Token created successfully for user:', user.id);
+
+    // Return success response
+    return NextResponse.json({
+      token,
+      user: {
+        id: user.id.toString(),
+        role: user.role,
+        name,
+        countyId: user.countyId?.toString() || null,
+        subCountyId: user.subCountyId?.toString() || null,
+      }
+    });
+
   } catch (error) {
-    console.error("Login error:", error)
-    return NextResponse.json({ error: "An error occurred during login" }, { status: 500 })
+    // Structured error logging
+    const errorObj = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+    };
+    console.error("Login error:", errorObj);
+
+    return NextResponse.json(
+      { error: "An error occurred during login" },
+      { status: 500 }
+    );
+  } finally {
+    await prisma.$disconnect();
   }
 }
-

@@ -29,12 +29,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <div className="min-h-screen bg-background text-foreground">
-            <header className="container mx-auto p-4">
-              <div className="flex justify-end">
-                <ThemeToggle />
-              </div>
-            </header>
+          <div className="min-h-screen bg-background text-foreground">       
             <main>{children}</main>
           </div>
           <Toaster />

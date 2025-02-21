@@ -1,82 +1,89 @@
-import NextAuth, { NextAuthOptions, User } from 'next-auth';
+import { PrismaClient } from '@prisma/client';
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { verify } from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
-import { PrismaAdapter } from "@next-auth/prisma-adapter"
-import { SubCounty } from '@/app/utils/interfaces';
 
+// Initialize Prisma Client
 const prisma = new PrismaClient();
 
+// Define types for better type safety
+interface JWTPayload {
+  id: string;
+  role: string;
+}
+
 export const authOptions: NextAuthOptions = {
-  adapter : PrismaAdapter(prisma),  
+  adapter: PrismaAdapter(prisma),
+  debug: process.env.NODE_ENV === 'development',
+  session: {
+    strategy: 'jwt',
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
+  secret: process.env.NEXTAUTH_SECRET,
+  pages: {
+    signIn: '/auth/signin',
+    error: '/auth/error',
+  },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (!process.env.NEXTAUTH_SECRET) {
+        throw new Error('NEXTAUTH_SECRET is not defined');
+      }
+
+      if (user) {
+        token.id = user.id.toString();
+        token.role = (user as any).role;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = parseInt(token.id as string);
+        session.user.role = token.role as string;
+      }
+      return session;
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "Access Key",
       credentials: {
-        accessKey: { label: "Access Key", type: "password" },
+        token: { 
+          label: 'Token', 
+          type: 'text',
+          placeholder: 'Enter your access token'
+        },
       },
       async authorize(credentials) {
-        if (!credentials?.accessKey) {
-          return null
-        }
+        try {
+          if (!credentials?.token) {
+            throw new Error('No token provided');
+          }
 
-        const subCounty = await prisma.subCounty.findUnique({
-          where: { accessKey: credentials.accessKey },
-          include: { user: true, county: true },
-        })
+          if (!process.env.NEXTAUTH_SECRET) {
+            throw new Error('NEXTAUTH_SECRET is not defined');
+          }
 
-        if (subCounty && subCounty.user) {
+          const decoded = verify(
+            credentials.token, 
+            process.env.NEXTAUTH_SECRET
+          ) as JWTPayload;
+
+          // Validate decoded token structure
+          if (!decoded.id || !decoded.role) {
+            throw new Error('Invalid token structure');
+          }
+
           return {
-            id: subCounty.user.id.toString(),
-            role: subCounty.user.role,
-            name: subCounty.name,
-            countyId: subCounty.countyId,
-            subCountyId: subCounty.id,
-          }
+            id: decoded.id,
+            role: decoded.role,
+          };
+        } catch (error) {
+          console.error('Authorization error:', error);
+          return null;
         }
-
-        const county = await prisma.county.findFirst({
-          where: { subCounties: { some: { accessKey: credentials.accessKey } } },
-          include: { subCounties: { include: { user: true } } },
-        })
-
-        if (county) {
-          const subCounty = county.subCounties.find((sc: SubCounty) => sc.accessKey === credentials.accessKey)
-          if (subCounty && subCounty.user) {
-            return {
-              id: subCounty.user.id.toString(),
-              role: subCounty.user.role,
-              name: county.name,
-              countyId: county.id,
-              subCountyId: subCounty.id,
-            }
-          }
-        }
-
-        return null
-      },
-    }),
-  ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = user.role
-        token.countyId = user.countyId
-        token.subCountyId = user.subCountyId
       }
-      return token
-    },
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.sub as string
-        session.user.role = token.role as "COUNTRY_ADMIN" | "COUNTY_ADMIN" | "SUB_COUNTY_USER"
-        session.user.countyId = token.countyId as string | undefined
-        session.user.subCountyId = token.subCountyId as string | undefined
-      }
-      return session
-    },
-  },
-  pages: {
-    signIn: "/login",
-  },
+    })
+  ]
 };

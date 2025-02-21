@@ -1,56 +1,191 @@
-// This is your Prisma schema file
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
+enum UserRole {
+  NATIONAL_ADMIN
+  COUNTRY_ADMIN
+  COUNTY_ADMIN
+  SUB_COUNTY_USER
+  REGION_ADMIN
+}
+
+enum EquipmentType {
+  LAPTOP
+  DESKTOP
+  PRINTER
+  SCANNER
+  PROJECTOR
+  NETWORK_DEVICE
+  VEHICLE
+  PHOTO_COPIER
+  OTHER
+}
+
+enum EquipmentLocation {
+  NATIONAL_OFFICE
+  REGION_OFFICE
+  COUNTY_OFFICE
+  SUB_COUNTY_OFFICE
+}
+
+enum StaffLocation {
+  NATIONAL_OFFICE
+  REGION_OFFICE
+  COUNTY_OFFICE
+  SUB_COUNTY_OFFICE
+}
+
+enum EquipmentCondition {
+  GOOD
+  NEEDS_REPAIR
+  OUT_OF_SERVICE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TermsOfService {
+  PERMANENT
+  CONTRACT
+  TEMPORARY
+}
+
 model User {
-  id           Int         @id @default(autoincrement())
-  role         String      // 'ADMIN' or 'USER'
-  subCounty    SubCounty   @relation(fields: [subCountyId], references: [id])
-  subCountyId  String      @unique // This ensures one-to-one relationship
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id          Int        @id @default(autoincrement())
+  role        UserRole
+  accessKey   String     @unique
+  region      Region?    @relation(fields: [regionId], references: [id])
+  regionId    String?
+  county      County?    @relation(fields: [countyId], references: [id])
+  countyId    String?
+  subCounty   SubCounty? @relation(fields: [subCountyId], references: [id])
+  subCountyId String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([role, regionId])
+  @@unique([role, countyId])
+  @@unique([role, subCountyId])
+}
+
+model Region {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  counties   County[]
+  users      User[]
+  staffs     Staff[]
+  equipments Equipment[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 }
 
 model County {
-  id           String       @id @default(cuid())
-  name         String       @unique
-  subCounties  SubCounty[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id          String      @id @default(cuid())
+  name        String      @unique
+  region      Region      @relation(fields: [regionId], references: [id])
+  regionId    String
+  subCounties SubCounty[]
+  users       User[]
+  staffs      Staff[]
+  equipments  Equipment[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([name, regionId])
 }
 
 model SubCounty {
-  id           String      @id @default(cuid())
-  name         String
-  accessKey    String      @unique
-  county       County      @relation(fields: [countyId], references: [id])
-  countyId     String
-  user         User?
-  equipments   Equipment[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id         String      @id @default(cuid())
+  name       String
+  county     County      @relation(fields: [countyId], references: [id])
+  countyId   String
+  users      User[]
+  equipments Equipment[]
+  staffs     Staff[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
-  @@unique([name, countyId]) // Ensure unique sub-county names within a county
+  @@unique([name, countyId])
 }
 
 model Equipment {
-  id            String      @id @default(cuid())
-  name          String
-  type          String
-  condition     String      // e.g., "Good", "Needs Repair", "Out of Service"
-  serialNumber  String?     @unique
-  purchaseDate  DateTime?
-  subCounty     SubCounty   @relation(fields: [subCountyId], references: [id])
-  subCountyId   String
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id           String             @id @default(cuid())
+  name         String
+  type         EquipmentType
+  condition    EquipmentCondition
+  serialNumber String?            @unique
+  purchaseDate DateTime?
+  location     EquipmentLocation
+  
+  region      Region?    @relation(fields: [regionId], references: [id])
+  regionId    String?
+  county      County?    @relation(fields: [countyId], references: [id])
+  countyId    String?
+  subCounty   SubCounty? @relation(fields: [subCountyId], references: [id])
+  subCountyId String?
+  
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  Maintenance  Maintenance[]
 
-  @@index([type]) // Add index for faster equipment type queries
+  @@index([type])
+  @@index([location])
+  
 }
 
+model Maintenance {
+  id              String    @id @default(cuid())
+  equipment       Equipment @relation(fields: [equipmentId], references: [id])
+  equipmentId     String
+  maintenanceDate DateTime  @default(now())
+  description     String
+  repairCost      Float?
+  resolved        Boolean   @default(false)
+  resolvedDate    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Staff {
+  id              String         @id @default(cuid())
+  surname         String
+  firstName       String
+  otherNames      String?
+  gender          Gender
+  personalNumber  String         @unique
+  jobTitle        String
+  jobGroup        String
+  csg             String
+  birthDate       DateTime
+  dateHired       DateTime
+  dateOfPost      DateTime
+  termsOfService  TermsOfService
+  location        StaffLocation
+
+  // Optional relations for different administrative levels
+  region      Region?    @relation(fields: [regionId], references: [id])
+  regionId    String?
+  county      County?    @relation(fields: [countyId], references: [id])
+  countyId    String?
+  subCounty   SubCounty? @relation(fields: [subCountyId], references: [id])
+  subCountyId String?
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([personalNumber])
+  @@index([jobTitle])
+  @@index([jobGroup])
+  @@index([location])
+  
+}

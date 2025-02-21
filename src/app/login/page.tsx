@@ -3,78 +3,87 @@
 import { useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import toast from "react-hot-toast"
-import { Button, Input } from "@headlessui/react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Loader } from 'lucide-react'
 
 
 export default function LoginPage() {
+  const [accessKey, setAccessKey] = useState("")
+  const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const router = useRouter()
 
-    const [accessKey, setAccessKey] = useState("")
-    const [isLoading, setIsLoading] = useState(false)
-    const router = useRouter()
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setIsLoading(true)
-    
-        const result = await signIn("credentials", {
-          accessKey,
-          redirect: false,
-        })
-    
-        setIsLoading(false)
-    
-        if (result?.error) {
-          //use react hot toast to show error
-        console.error(result.error)
-
-        toast.error(result.error)
-
-        } else {
-          router.push("/dashboard")
-        }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
+  
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessKey }),
+      });
+  
+      const responseData = await response.json();
+  
+      if (response.ok) {
+        const { token } = responseData;
+        await signIn('credentials', { token, callbackUrl: '/' });
+      } else {
+        setError(responseData.error || 'Login failed');
       }
-
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-md w-full space-y-8">
-            <div>
-              <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">
-                Sign in to your account
-              </h2>
+    } catch (error) {
+      if(error instanceof Error) {
+        console.error('Login error:', error.message, error.stack);
+      }
+      setError('An unexpected error occurred.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+      <Card className="w-[350px]">
+        <CardHeader>
+          <CardTitle>Login</CardTitle>
+          <CardDescription>Enter your access key to sign in</CardDescription>
+        </CardHeader>
+        <form onSubmit={handleSubmit}>
+          <CardContent>
+            <div className="grid w-full items-center gap-4">
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="accessKey">Access Key</Label>
+                <Input
+                  id="accessKey"
+                  type="password"
+                  value={accessKey}
+                  onChange={(e) => setAccessKey(e.target.value)}
+                  placeholder="Enter your access key"
+                />
+              </div>
             </div>
-            <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-              <div className="rounded-md shadow-sm -space-y-px">
-                <div>
-                  <label htmlFor="access-key" className="sr-only">
-                    Access Key
-                  </label>
-                  <Input
-                    id="access-key"
-                    name="accessKey"
-                    type="password"
-                    required
-                    className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                    placeholder="Access Key"
-                    value={accessKey}
-                    onChange={(e) => setAccessKey(e.target.value)}
-                  />
-                </div>
-              </div>
-    
-              <div>
-                <Button
-                  type="submit"
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Signing in..." : "Sign in"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )
-    
-   
+          </CardContent>
+          <CardFooter className="flex flex-col">
+          <Button className="w-full mt-4" type="submit" disabled={isLoading}>
+        {isLoading ? (
+          <>
+            <Loader className="mr-2 h-4 w-4 animate-spin" />
+            Signing In...
+          </>
+        ) : (
+          "Sign In"
+        )}
+      </Button>
+            {error && <p className="text-red-500 mt-2">{error}</p>}
+          </CardFooter>
+        </form>
+      </Card>
+    </div>
+  )
 }
+
